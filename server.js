@@ -31,12 +31,18 @@ async function getAvatar(userId) {
 async function generateDonationImage({ donatorUsername, donatorImage, raiserUsername, raiserImage, amount }) {
     const width = 1100;
     const height = 220;
+    // Use JPG canvas type to force white background
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
     const tier = getTier(Number(amount));
 
-    // Force solid background - no transparency
-    ctx.globalAlpha = 1.0;
+    // Draw white rect first
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+
+    // Then colored background
     ctx.fillStyle = tier.bg;
     ctx.fillRect(0, 0, width, height);
 
@@ -47,19 +53,19 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     async function drawAvatar(imageUrl, cx, cy) {
         const radius = avatarSize / 2;
 
-        // Accent border
+        // Accent border circle
         ctx.beginPath();
         ctx.arc(cx, cy, radius + borderWidth, 0, Math.PI * 2);
         ctx.fillStyle = tier.accent;
         ctx.fill();
 
-        // Grey base
+        // Grey fallback circle
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.fillStyle = '#AAAAAA';
         ctx.fill();
 
-        // Avatar
+        // Avatar image clipped to circle
         if (imageUrl) {
             try {
                 const img = await loadImage(imageUrl);
@@ -90,7 +96,7 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     ctx.strokeText(`@${raiserUsername}`, width - 130, nameY);
     ctx.fillText(`@${raiserUsername}`, width - 130, nameY);
 
-    // Robux icon
+    // Center
     const centerX = width / 2;
     const formatted = Number(amount).toLocaleString();
     const iconSize = 58;
@@ -103,6 +109,7 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     const iconX = startX + iconSize / 2;
     const iconY = centerY - 18;
 
+    // Robux icon
     const r = iconSize / 2;
     ctx.beginPath();
     ctx.arc(iconX, iconY, r, 0, Math.PI * 2);
@@ -120,7 +127,7 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     ctx.lineWidth = iconSize * 0.07;
     ctx.stroke();
 
-    // Amount text
+    // Amount
     ctx.font = `bold ${amountFontSize}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.lineWidth = 7;
@@ -138,7 +145,8 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     ctx.fillStyle = '#000000';
     ctx.fillText('donated to', centerX, centerY + 58);
 
-    return canvas.toBuffer('image/png');
+    // Export as JPEG (no transparency = no black background issue)
+    return canvas.toBuffer('image/jpeg', { quality: 0.95 });
 }
 
 app.post('/generate', async (req, res) => {
@@ -161,7 +169,8 @@ app.post('/generate', async (req, res) => {
 
         if (DISCORD_WEBHOOK) {
             const form = new FormData();
-            form.append('file', imageBuffer, { filename: 'donation.png', contentType: 'image/png' });
+            // Use .jpg extension so Discord knows it's JPEG
+            form.append('file', imageBuffer, { filename: 'donation.jpg', contentType: 'image/jpeg' });
             form.append('payload_json', JSON.stringify({ username: 'Donation Logger' }));
             const discordRes = await fetch(DISCORD_WEBHOOK, { method: 'POST', body: form, headers: form.getHeaders() });
             const discordText = await discordRes.text();
@@ -170,7 +179,7 @@ app.post('/generate', async (req, res) => {
             console.log('No DISCORD_WEBHOOK set!');
         }
 
-        res.set('Content-Type', 'image/png');
+        res.set('Content-Type', 'image/jpeg');
         res.send(imageBuffer);
     } catch (err) {
         console.error('Error:', err);
