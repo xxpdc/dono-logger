@@ -2,6 +2,8 @@ const express = require('express');
 const { createCanvas, loadImage } = require('canvas');
 const FormData = require('form-data');
 const fetch = require('node-fetch');
+const sharp = require('sharp');
+const fs = require('fs');
 const app = express();
 app.use(express.json());
 
@@ -23,6 +25,18 @@ async function getAvatar(userId) {
     }
 }
 
+async function fetchImageBuffer(url) {
+    try {
+        const res = await fetch(url);
+        const buf = await res.buffer();
+        // Flatten transparency to white using sharp
+        return await sharp(buf).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toBuffer();
+    } catch (e) {
+        console.log('fetchImageBuffer error:', e.message);
+        return null;
+    }
+}
+
 async function generateDonationImage({ donatorUsername, donatorImage, raiserUsername, raiserImage, amount }) {
     const width = 1100;
     const height = 220;
@@ -30,19 +44,16 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     const ctx = canvas.getContext('2d');
     const tier = getTier(Number(amount));
 
-    // Step 1: fill entire canvas white using rect with explicit RGB
-    ctx.globalCompositeOperation = 'source-over';
+    // Background
+    ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.rect(0, 0, width, height);
-    ctx.fillStyle = 'rgb(255,255,255)';
-    ctx.fill();
+    ctx.fillStyle = tier.bg || "#FFFFFF";
+    ctx.fillRect(0, 0, width, height);
 
-    // Step 2: fill with tier color
-    ctx.beginPath();
-    ctx.rect(0, 0, width, height);
-    ctx.fillStyle = tier.bg;
-    ctx.fill();
+    console.log("Canvas size:", width, height);
+    console.log("Tier:", tier);
+    console.log("Background color:", tier.bg);
+    console.log("Composite:", ctx.globalCompositeOperation);
 
     const avatarSize = 130;
     const borderWidth = 5;
@@ -51,35 +62,40 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     async function drawAvatar(imageUrl, cx, cy) {
         const radius = avatarSize / 2;
 
-        // Border
         ctx.beginPath();
         ctx.arc(cx, cy, radius + borderWidth, 0, Math.PI * 2);
         ctx.fillStyle = tier.accent;
         ctx.fill();
 
-        // White base behind avatar
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgb(200,200,200)';
+        ctx.fillStyle = "#FFFFFF";
         ctx.fill();
 
-        if (imageUrl) {
-            try {
-                // Draw avatar on a temp canvas with white background first
-                const tmpCanvas = createCanvas(avatarSize, avatarSize);
-                const tmpCtx = tmpCanvas.getContext('2d');
-                tmpCtx.fillStyle = 'rgb(200,200,200)';
-                tmpCtx.fillRect(0, 0, avatarSize, avatarSize);
-                const img = await loadImage(imageUrl);
-                tmpCtx.drawImage(img, 0, 0, avatarSize, avatarSize);
+        if (!imageUrl) return;
 
-                // Now clip and draw onto main canvas
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-                ctx.clip();
-                ctx.drawImage(tmpCanvas, cx - radius, cy - radius);
-                ctx.restore();
+        try {
+            const buf = await fetchImageBuffer(imageUrl);
+            if (!buf) return;
+
+            const img = await loadImage(buf);
+
+            const tmpCanvas = createCanvas(avatarSize, avatarSize);
+            const tmpCtx = tmpCanvas.getContext("2d");
+            tmpCtx.fillStyle = "#FFFFFF";
+            tmpCtx.fillRect(0,0,avatarSize,avatarSize);
+            tmpCtx.drawImage(img,0,0,avatarSize,avatarSize);
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(tmpCanvas, cx-radius, cy-radius);
+            ctx.restore();
+        } catch(e){
+            console.error("Avatar draw error:",e);
+        }
+    }
             } catch (e) {
                 console.log('Avatar draw error:', e.message);
             }
@@ -89,14 +105,13 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     await drawAvatar(donatorImage, 130, centerY);
     await drawAvatar(raiserImage, width - 130, centerY);
 
-    // Usernames
     const nameY = centerY + avatarSize / 2 + 28;
     ctx.textAlign = 'center';
     ctx.font = 'bold 21px sans-serif';
     ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgb(255,255,255)';
+    ctx.strokeStyle = '#ffffff';
     ctx.strokeText(`@${donatorUsername}`, 130, nameY);
-    ctx.fillStyle = 'rgb(0,0,0)';
+    ctx.fillStyle = '#000000';
     ctx.fillText(`@${donatorUsername}`, 130, nameY);
     ctx.strokeText(`@${raiserUsername}`, width - 130, nameY);
     ctx.fillText(`@${raiserUsername}`, width - 130, nameY);
@@ -114,42 +129,46 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     const iconY = centerY - 18;
     const r = iconSize / 2;
 
-    // Robux icon
     ctx.beginPath();
     ctx.arc(iconX, iconY, r, 0, Math.PI * 2);
     ctx.fillStyle = tier.accent;
     ctx.fill();
-    ctx.strokeStyle = 'rgb(0,0,0)';
+    ctx.strokeStyle = '#000000';
     ctx.lineWidth = iconSize * 0.08;
     ctx.stroke();
-    const sq = iconSize * 0.28;
-    ctx.fillStyle = 'rgb(0,0,0)';
-    ctx.fillRect(iconX - sq / 2, iconY - sq / 2, sq, sq);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(iconX - iconSize * 0.14, iconY - iconSize * 0.14, iconSize * 0.28, iconSize * 0.28);
     ctx.beginPath();
     ctx.arc(iconX, iconY, r * 0.55, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgb(0,0,0)';
+    ctx.strokeStyle = '#000000';
     ctx.lineWidth = iconSize * 0.07;
     ctx.stroke();
 
-    // Amount
     ctx.font = `bold ${amountFontSize}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.lineWidth = 7;
-    ctx.strokeStyle = 'rgb(0,0,0)';
+    ctx.strokeStyle = '#000000';
     ctx.strokeText(formatted, startX + iconSize + 8, centerY + 10);
     ctx.fillStyle = tier.accent;
     ctx.fillText(formatted, startX + iconSize + 8, centerY + 10);
 
-    // donated to
     ctx.font = 'bold 36px sans-serif';
     ctx.textAlign = 'center';
     ctx.lineWidth = 5;
-    ctx.strokeStyle = 'rgb(255,255,255)';
+    ctx.strokeStyle = '#ffffff';
     ctx.strokeText('donated to', centerX, centerY + 58);
-    ctx.fillStyle = 'rgb(0,0,0)';
+    ctx.fillStyle = '#000000';
     ctx.fillText('donated to', centerX, centerY + 58);
 
-    return canvas.toBuffer('image/jpeg', { quality: 0.95 });
+    // Use sharp to flatten final image to remove any remaining transparency
+    const pngBuf = canvas.toBuffer('image/png');
+    const imageBuffer = await sharp(pngBuf)
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .jpeg({ quality: 95 })
+        .toBuffer();
+
+    fs.writeFileSync("debug.jpg", imageBuffer);
+    return imageBuffer;
 }
 
 app.post('/generate', async (req, res) => {
