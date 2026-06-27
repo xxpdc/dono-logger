@@ -17,6 +17,17 @@ function getTier(amount) {
     }
 }
 
+async function getAvatar(userId) {
+    try {
+        const res = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=true`);
+        const data = await res.json();
+        return data.data[0].imageUrl;
+    } catch (e) {
+        console.log('Avatar fetch failed for', userId, e.message);
+        return null;
+    }
+}
+
 async function generateDonationImage({ donatorUsername, donatorImage, raiserUsername, raiserImage, amount }) {
     const width = 1100;
     const height = 220;
@@ -48,8 +59,13 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
         ctx.closePath();
         ctx.clip();
         try {
-            const img = await loadImage(imageUrl);
-            ctx.drawImage(img, cx - radius, cy - radius, avatarSize, avatarSize);
+            if (imageUrl) {
+                const img = await loadImage(imageUrl);
+                ctx.drawImage(img, cx - radius, cy - radius, avatarSize, avatarSize);
+            } else {
+                ctx.fillStyle = '#aaaaaa';
+                ctx.fill();
+            }
         } catch {
             ctx.fillStyle = '#aaaaaa';
             ctx.fill();
@@ -127,22 +143,25 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 
 app.post('/generate', async (req, res) => {
     try {
-        const { donatorUsername, donatorImage, raiserUsername, raiserImage, amount } = req.body;
-        console.log('Received request:', { donatorUsername, raiserUsername, amount });
+        const { donatorUsername, donatorId, raiserUsername, raiserId, amount, donatorImage, raiserImage } = req.body;
+        console.log('Received:', { donatorUsername, donatorId, raiserUsername, raiserId, amount });
 
         if (!donatorUsername || !raiserUsername || !amount) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
+        // Fetch avatars server-side if IDs provided
+        const avatar1 = donatorImage || (donatorId ? await getAvatar(donatorId) : null);
+        const avatar2 = raiserImage || (raiserId ? await getAvatar(raiserId) : null);
+        console.log('Avatars:', avatar1, avatar2);
+
         const imageBuffer = await generateDonationImage({
             donatorUsername,
-            donatorImage: donatorImage || '',
+            donatorImage: avatar1,
             raiserUsername,
-            raiserImage: raiserImage || '',
+            raiserImage: avatar2,
             amount
         });
-
-        console.log('Image generated, webhook set:', !!DISCORD_WEBHOOK);
 
         if (DISCORD_WEBHOOK) {
             const form = new FormData();
@@ -154,10 +173,9 @@ app.post('/generate', async (req, res) => {
                 headers: form.getHeaders(),
             });
             const discordText = await discordRes.text();
-            console.log('Discord status:', discordRes.status);
-            console.log('Discord response:', discordText);
+            console.log('Discord status:', discordRes.status, discordText);
         } else {
-            console.log('DISCORD_WEBHOOK env var not set!');
+            console.log('No DISCORD_WEBHOOK set!');
         }
 
         res.set('Content-Type', 'image/png');
