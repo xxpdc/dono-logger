@@ -1,7 +1,11 @@
 const express = require('express');
 const { createCanvas, loadImage } = require('canvas');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
 const app = express();
 app.use(express.json());
+
+const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 function getTier(amount) {
     if (amount >= 10000) {
@@ -33,7 +37,6 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 
     const tier = getTier(Number(amount));
 
-    // Background gradient
     const grad = ctx.createLinearGradient(0, height, width, 0);
     grad.addColorStop(0, tier.bgGradientStart);
     grad.addColorStop(1, tier.bgGradientEnd);
@@ -46,16 +49,12 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 
     async function drawAvatar(imageUrl, cx, cy) {
         const radius = avatarSize / 2;
-
-        // Accent border
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, radius + borderWidth, 0, Math.PI * 2);
         ctx.fillStyle = tier.accent;
         ctx.fill();
         ctx.restore();
-
-        // Clip and draw avatar
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -77,7 +76,6 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     await drawAvatar(donatorImage, leftCX, centerY);
     await drawAvatar(raiserImage, rightCX, centerY);
 
-    // Usernames
     ctx.textAlign = 'center';
     ctx.font = 'bold 21px "Arial Black", Arial';
     ctx.fillStyle = '#000000';
@@ -89,14 +87,11 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     ctx.strokeText(`@${raiserUsername}`, rightCX, nameY);
     ctx.fillText(`@${raiserUsername}`, rightCX, nameY);
 
-    // Center content
     const centerX = width / 2;
     const formatted = Number(amount).toLocaleString();
 
-    // Robux icon (drawn as concentric circles with square hole)
     function drawRobuxIcon(x, y, size) {
         const r = size / 2;
-        // Outer circle stroke
         ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -105,11 +100,9 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
         ctx.lineWidth = size * 0.08;
         ctx.fill();
         ctx.stroke();
-        // Inner square hole
         const sq = size * 0.28;
         ctx.fillStyle = '#000000';
         ctx.fillRect(x - sq / 2, y - sq / 2, sq, sq);
-        // Inner circle ring cutout effect
         ctx.beginPath();
         ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
         ctx.strokeStyle = '#000000';
@@ -127,7 +120,6 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 
     drawRobuxIcon(startX + iconSize / 2, centerY - 18, iconSize);
 
-    // Amount text
     ctx.font = `bold ${amountFontSize}px "Arial Black", Arial`;
     ctx.textAlign = 'left';
     ctx.lineWidth = 7;
@@ -136,7 +128,6 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     ctx.fillStyle = tier.accent;
     ctx.fillText(formatted, startX + iconSize + 8, centerY + 10);
 
-    // "donated to"
     ctx.font = 'bold 36px "Arial Black", Arial';
     ctx.textAlign = 'center';
     ctx.lineWidth = 5;
@@ -151,9 +142,11 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 app.post('/generate', async (req, res) => {
     try {
         const { donatorUsername, donatorImage, raiserUsername, raiserImage, amount } = req.body;
+
         if (!donatorUsername || !raiserUsername || !amount) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
+
         const imageBuffer = await generateDonationImage({
             donatorUsername,
             donatorImage: donatorImage || '',
@@ -161,6 +154,24 @@ app.post('/generate', async (req, res) => {
             raiserImage: raiserImage || '',
             amount
         });
+
+        // Send to Discord webhook
+        if (DISCORD_WEBHOOK) {
+            const form = new FormData();
+            form.append('file', imageBuffer, {
+                filename: 'donation.png',
+                contentType: 'image/png',
+            });
+            form.append('payload_json', JSON.stringify({
+                username: 'Donation Logger',
+            }));
+            await fetch(DISCORD_WEBHOOK, {
+                method: 'POST',
+                body: form,
+                headers: form.getHeaders(),
+            });
+        }
+
         res.set('Content-Type', 'image/png');
         res.send(imageBuffer);
     } catch (err) {
