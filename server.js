@@ -37,13 +37,18 @@ async function fetchImageBuffer(url) {
     }
 }
 
-async function generateDonationImage({ donatorUsername, donatorImage, raiserUsername, raiserImage, amount }) {
-   const width = 1100;
-const height = 220;
+async function generateDonationImage() {
+    const canvas = createCanvas(1100, 220);
+    const ctx = canvas.getContext("2d");
 
-const canvas = createCanvas(width, height);
-const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ff0000";
+    ctx.fillRect(0, 0, 1100, 220);
 
+    ctx.fillStyle = "#00ff00";
+    ctx.fillRect(100, 50, 200, 100);
+
+    return canvas.toBuffer("image/png");
+}
 // Test
 ctx.fillStyle = "#ff0000";
 ctx.fillRect(0, 0, width, height);
