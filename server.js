@@ -9,11 +9,11 @@ const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 function getTier(amount) {
     if (amount >= 10000) {
-        return { accent: '#CC0000', bgGradientStart: '#FF6666', bgGradientEnd: '#FFB3B3' };
+        return { accent: '#CC0000', bg1: '#FF6666', bg2: '#FFB3B3' };
     } else if (amount >= 1000) {
-        return { accent: '#FF1493', bgGradientStart: '#FFB3D9', bgGradientEnd: '#FFFFFF' };
+        return { accent: '#FF1493', bg1: '#FFB3D9', bg2: '#FFFFFF' };
     } else {
-        return { accent: '#FF00CC', bgGradientStart: '#FFFFFF', bgGradientEnd: '#FFFFFF' };
+        return { accent: '#FF00CC', bg1: '#FFFFFF', bg2: '#FFFFFF' };
     }
 }
 
@@ -23,7 +23,7 @@ async function getAvatar(userId) {
         const data = await res.json();
         return data.data[0].imageUrl;
     } catch (e) {
-        console.log('Avatar fetch failed for', userId, e.message);
+        console.log('Avatar fetch failed:', e.message);
         return null;
     }
 }
@@ -35,11 +35,14 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     const ctx = canvas.getContext('2d');
     const tier = getTier(Number(amount));
 
-    const grad = ctx.createLinearGradient(0, height, width, 0);
-    grad.addColorStop(0, tier.bgGradientStart);
-    grad.addColorStop(1, tier.bgGradientEnd);
-    ctx.fillStyle = "#ffffff";
+    // Solid white base first
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, width, height);
+
+    // Then gradient on top
+    const grad = ctx.createLinearGradient(0, 0, width, height);
+    grad.addColorStop(0, tier.bg1);
+    grad.addColorStop(1, tier.bg2);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
@@ -49,12 +52,24 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 
     async function drawAvatar(imageUrl, cx, cy) {
         const radius = avatarSize / 2;
+
+        // Pink/red border ring
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, radius + borderWidth, 0, Math.PI * 2);
         ctx.fillStyle = tier.accent;
         ctx.fill();
         ctx.restore();
+
+        // White inner circle base
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#CCCCCC';
+        ctx.fill();
+        ctx.restore();
+
+        // Draw avatar clipped to circle
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -64,13 +79,9 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
             if (imageUrl) {
                 const img = await loadImage(imageUrl);
                 ctx.drawImage(img, cx - radius, cy - radius, avatarSize, avatarSize);
-            } else {
-                ctx.fillStyle = '#aaaaaa';
-                ctx.fill();
             }
-        } catch {
-            ctx.fillStyle = '#aaaaaa';
-            ctx.fill();
+        } catch (e) {
+            console.log('loadImage failed:', e.message);
         }
         ctx.restore();
     }
@@ -80,17 +91,19 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     await drawAvatar(donatorImage, leftCX, centerY);
     await drawAvatar(raiserImage, rightCX, centerY);
 
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 21px "Arial Black", Arial';
-    ctx.fillStyle = '#000000';
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 4;
+    // Usernames
     const nameY = centerY + avatarSize / 2 + 28;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 21px Arial';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#ffffff';
     ctx.strokeText(`@${donatorUsername}`, leftCX, nameY);
+    ctx.fillStyle = '#000000';
     ctx.fillText(`@${donatorUsername}`, leftCX, nameY);
     ctx.strokeText(`@${raiserUsername}`, rightCX, nameY);
     ctx.fillText(`@${raiserUsername}`, rightCX, nameY);
 
+    // Center content
     const centerX = width / 2;
     const formatted = Number(amount).toLocaleString();
 
@@ -100,9 +113,9 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = tier.accent;
+        ctx.fill();
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = size * 0.08;
-        ctx.fill();
         ctx.stroke();
         const sq = size * 0.28;
         ctx.fillStyle = '#000000';
@@ -117,14 +130,15 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 
     const iconSize = 58;
     const amountFontSize = 68;
-    ctx.font = `bold ${amountFontSize}px "Arial Black", Arial`;
+    ctx.font = `bold ${amountFontSize}px Arial`;
     const textWidth = ctx.measureText(formatted).width;
     const totalWidth = iconSize + 8 + textWidth;
     const startX = centerX - totalWidth / 2;
 
     drawRobuxIcon(startX + iconSize / 2, centerY - 18, iconSize);
 
-    ctx.font = `bold ${amountFontSize}px "Arial Black", Arial`;
+    // Amount
+    ctx.font = `bold ${amountFontSize}px Arial`;
     ctx.textAlign = 'left';
     ctx.lineWidth = 7;
     ctx.strokeStyle = '#000000';
@@ -132,7 +146,8 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     ctx.fillStyle = tier.accent;
     ctx.fillText(formatted, startX + iconSize + 8, centerY + 10);
 
-    ctx.font = 'bold 36px "Arial Black", Arial';
+    // "donated to"
+    ctx.font = 'bold 36px Arial';
     ctx.textAlign = 'center';
     ctx.lineWidth = 5;
     ctx.strokeStyle = '#ffffff';
@@ -152,7 +167,6 @@ app.post('/generate', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // Fetch avatars server-side if IDs provided
         const avatar1 = donatorImage || (donatorId ? await getAvatar(donatorId) : null);
         const avatar2 = raiserImage || (raiserId ? await getAvatar(raiserId) : null);
         console.log('Avatars:', avatar1, avatar2);
