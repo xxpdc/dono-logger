@@ -38,18 +38,25 @@ async function fetchImageBuffer(url) {
 }
 
 async function generateDonationImage({ donatorUsername, donatorImage, raiserUsername, raiserImage, amount }) {
-    const width = 1100;
-    const height = 220;
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-    const tier = getTier(Number(amount));
+   const width = 1100;
+const height = 220;
 
-    // Background
-    ctx.globalCompositeOperation = "source-over";
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = tier.bg || "#FFFFFF";
-    ctx.fillRect(0, 0, width, height);
+const canvas = createCanvas(width, height);
+const ctx = canvas.getContext("2d");
 
+// Test
+ctx.fillStyle = "#ff0000";
+ctx.fillRect(0, 0, width, height);
+
+ctx.fillStyle = "#00ff00";
+ctx.fillRect(100, 50, 200, 100);
+
+ctx.fillStyle = "#0000ff";
+ctx.beginPath();
+ctx.arc(550, 110, 50, 0, Math.PI * 2);
+ctx.fill();
+
+return canvas.toBuffer("image/png");
     console.log("Canvas size:", width, height);
     console.log("Tier:", tier);
     console.log("Background color:", tier.bg);
