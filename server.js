@@ -38,6 +38,8 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     const grad = ctx.createLinearGradient(0, height, width, 0);
     grad.addColorStop(0, tier.bgGradientStart);
     grad.addColorStop(1, tier.bgGradientEnd);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
