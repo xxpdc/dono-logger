@@ -9,23 +9,11 @@ const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 function getTier(amount) {
     if (amount >= 10000) {
-        return {
-            accent: '#CC0000',
-            bgGradientStart: '#FF6666',
-            bgGradientEnd: '#FFB3B3',
-        };
+        return { accent: '#CC0000', bgGradientStart: '#FF6666', bgGradientEnd: '#FFB3B3' };
     } else if (amount >= 1000) {
-        return {
-            accent: '#FF1493',
-            bgGradientStart: '#FFB3D9',
-            bgGradientEnd: '#FFFFFF',
-        };
+        return { accent: '#FF1493', bgGradientStart: '#FFB3D9', bgGradientEnd: '#FFFFFF' };
     } else {
-        return {
-            accent: '#FF00CC',
-            bgGradientStart: '#FFFFFF',
-            bgGradientEnd: '#FFFFFF',
-        };
+        return { accent: '#FF00CC', bgGradientStart: '#FFFFFF', bgGradientEnd: '#FFFFFF' };
     }
 }
 
@@ -34,7 +22,6 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
     const height = 220;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
-
     const tier = getTier(Number(amount));
 
     const grad = ctx.createLinearGradient(0, height, width, 0);
@@ -72,7 +59,6 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 
     const leftCX = 130;
     const rightCX = width - 130;
-
     await drawAvatar(donatorImage, leftCX, centerY);
     await drawAvatar(raiserImage, rightCX, centerY);
 
@@ -142,6 +128,7 @@ async function generateDonationImage({ donatorUsername, donatorImage, raiserUser
 app.post('/generate', async (req, res) => {
     try {
         const { donatorUsername, donatorImage, raiserUsername, raiserImage, amount } = req.body;
+        console.log('Received request:', { donatorUsername, raiserUsername, amount });
 
         if (!donatorUsername || !raiserUsername || !amount) {
             return res.status(400).json({ error: 'Missing required fields' });
@@ -155,27 +142,28 @@ app.post('/generate', async (req, res) => {
             amount
         });
 
-        // Send to Discord webhook
+        console.log('Image generated, webhook set:', !!DISCORD_WEBHOOK);
+
         if (DISCORD_WEBHOOK) {
             const form = new FormData();
-            form.append('file', imageBuffer, {
-                filename: 'donation.png',
-                contentType: 'image/png',
-            });
-            form.append('payload_json', JSON.stringify({
-                username: 'Donation Logger',
-            }));
-            await fetch(DISCORD_WEBHOOK, {
+            form.append('file', imageBuffer, { filename: 'donation.png', contentType: 'image/png' });
+            form.append('payload_json', JSON.stringify({ username: 'Donation Logger' }));
+            const discordRes = await fetch(DISCORD_WEBHOOK, {
                 method: 'POST',
                 body: form,
                 headers: form.getHeaders(),
             });
+            const discordText = await discordRes.text();
+            console.log('Discord status:', discordRes.status);
+            console.log('Discord response:', discordText);
+        } else {
+            console.log('DISCORD_WEBHOOK env var not set!');
         }
 
         res.set('Content-Type', 'image/png');
         res.send(imageBuffer);
     } catch (err) {
-        console.error(err);
+        console.error('Error:', err);
         res.status(500).json({ error: err.message });
     }
 });
